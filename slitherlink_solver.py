@@ -1,5 +1,6 @@
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
+import re
 
 class Grid:
 	def __init__(self, dims=[4,4]):
@@ -8,17 +9,23 @@ class Grid:
 		self.grid = "."*np.prod(self.cellsize)
 		self.image_filename = "tmp.png"
 		self.draw_grid_scale = 30
-	def set_grid(self, numbers="3...3.3.3.3...20"):
+	def set_grid(self, numbers):
+		numbers = re.sub(" ","",numbers)
 		if len(numbers) == np.prod(self.cellsize):
 			self.grid = numbers
 		else:
 			print "No action; did not enter valid grid size."
 	def set_lines(self, lines):
-		print self.width -1 + self.height-1 + 2*(self.width - 1)*(self.height - 1)
-		if len(lines) == self.width -1 + self.height -1 + 2*(self.width - 1)*(self.height - 1):
+		lines = re.sub(" ","",lines)
+		print self.cellsize[0]*self.ticksize[1] + self.cellsize[1]*self.ticksize[0]
+		if len(lines) == self.cellsize[0]*self.ticksize[1] + self.cellsize[1]*self.ticksize[0]:
 			self.lines = lines
 		else:
 			print "No action; number of lines incorrect."
+	def lines_as_HV(self):
+		assignments = ([0]*self.cellsize[0] + [1]*self.ticksize[0])*self.cellsize[1] + [0]*self.cellsize[0]
+		self.hlines = [self.lines[i] for i in range(len(self.lines)) if assignments[i]==0]
+		self.vlines = [self.lines[i] for i in range(len(self.lines)) if assignments[i]==1]
 	def show_grid(self):
 		k = self.draw_grid_scale
 		x_off = k
@@ -39,17 +46,24 @@ class Grid:
 				tex_x = i_x*k+k/2-font.getsize(x)[0]/2
 				tex_y = i_y*k+k/2-font.getsize(x)[1]/2
 				d.text((tex_x, tex_y), x, font=font, fill="#000")
+		# Draw lines
+		self.lines_as_HV()
+		for i,x in enumerate(self.hlines):
+			if x=="-":
+				i_x = (i%self.cellsize[0]+1)*k
+				i_y = (i/self.cellsize[0]+1)*k
+				d.line( [(i_x,i_y), (i_x +k,i_y)], fill="#000")
+		for i,y in enumerate(self.vlines):
+			if y=="-":
+				i_x = (i%self.ticksize[0]+1)*k
+				i_y = (i/self.ticksize[0]+1)*k
+				d.line( [(i_x,i_y), (i_x,i_y+k)], fill="#000")
 		del d
 		# Save output
 		im.save(self.image_filename)
 
 a = Grid()
-# a.width = 1
-# a.height = 1
-# a.set_grid(".")
-# a.set_lines()
+a.set_grid(numbers="0..2 .30. .32. 1..3")
+a.set_lines("..-- ..-.- .-.. .-..- .-.- ..--. .-.- .-..- .---")
 a.set_grid()
 a.show_grid()
-# a.set_lines("---.-..-.-.-..--..-.-.-..-.---.")
-
-base = Image.open('crying.jpg').convert('RGBA')
