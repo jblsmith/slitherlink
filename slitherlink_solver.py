@@ -123,6 +123,7 @@ from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import re
 import os
+import itertools
 
 class Grid:
 	def __init__(self, dims=[4,4], name="grid"):
@@ -135,7 +136,7 @@ class Grid:
 		# self.vertex[i,j] = the point between rows i and i+1 and columns j and j+1
 		self.vline = np.zeros((n_rows, n_cols+1)).astype(int)
 		self.hline = np.zeros((n_rows+1, n_cols)).astype(int)
-		self.vertex = np.zeros((4, n_rows+1, n_cols+1)).astype(int)-1
+		self.vertex = np.zeros((n_rows+1, n_cols+1)).astype(int)
 		self.cell = np.zeros(dims).astype(int)
 		self.number = np.zeros(dims).astype(int)-1
 		self.shade = np.zeros(dims).astype(int)
@@ -153,11 +154,11 @@ class Grid:
 		n_snakes = np.sum(number_array==1) + 2*np.sum(number_array==2) + np.sum(number_array==3)
 		self.snake = np.zeros((n_snakes, 1, 1))
 		# Set NESW vertex impossibilities: Nothing can come from NORTH in top row, from EAST in right row, etc.
-		print("Setting edge vertex constraints...")
-		self.vertex[0,0,:] = -2
-		self.vertex[1,:,-1] = -2
-		self.vertex[2,-1,:] = -2
-		self.vertex[3,:,0] = -2
+		# print("Setting edge vertex constraints...")
+		# self.vertex[0,0,:] = -2
+		# self.vertex[1,:,-1] = -2
+		# self.vertex[2,-1,:] = -2
+		# self.vertex[3,:,0] = -2
 	def set_lines(self, hline_array, vline_array):
 		# Define line placements
 		if type(hline_array) is str:
@@ -167,9 +168,6 @@ class Grid:
 		assert hline_array.shape == self.hline.shape, "hline_array has incorrect shape, should be %r" % self.hline.shape
 		assert vline_array.shape == self.vline.shape, "vline_array has incorrect shape, should be %r" % self.vline.shape
 		assert (np.min(hline_array)>=-1) & (np.max(hline_array)<=1) & (np.min(vline_array)>=-1) & (np.max(vline_array)<=1), "Some value in hline_array or vline_array is not between -1 and 3."
-		# assert np.max(hline_array)<=1
-		# assert np.min(vline_array)>=-1
-		# assert np.max(vline_array)<=1
 		self.vline = vline_array
 		self.hline = hline_array
 	def numbers_str_to_array(self, number_string):
@@ -248,32 +246,63 @@ class Grid:
 	# 	# For every cell: can we immediately deduce where to draw lines around it?
 	# def extend_lines(self):
 	# 	# For each line: can we extend it in obvious way?
-	def update_vertices_from_lines(self):
-		# For every line that exists:
-		# 	Vertex-1 must reflect it out
-		# 	Vertex-2 must reflect it in
-		# For every line that cannot exist:
-		# 	Do the same
-		#
-		# Do hlines first, then vlines:
-		for row_i in range(self.hline.shape[0]):
-			h_ones = np.where(self.hline[row_i,:]==1)[0]
-			h_minus_ones = np.where(self.hline[row_i,:]==-1)[0]
-			for col_j in h_ones:
-				self.vertex[1,row_i,col_j]=1
-				self.vertex[3,row_i,col_j+1]=1
-			for col_j in h_minus_ones:
-				self.vertex[1,row_i,col_j]=-1
-				self.vertex[3,row_i,col_j+1]=-1
-		for col_i in range(self.vline.shape[1]):
-			v_ones = np.where(self.vline[:,col_i]==1)[0]
-			v_minus_ones = np.where(self.vline[:,col_i]==-1)[0]
-			for row_j in v_ones:
-				self.vertex[2,row_j,col_i]=1
-				self.vertex[0,row_j+1,col_i]=1
-			for row_j in v_minus_ones:
-				self.vertex[2,row_j,col_i]=-1
-				self.vertex[0,row_j+1,col_i]=-1
+	# def update_vertices_from_lines(self):
+	# 	# For every line in hlines and vlines, render knowledge in vertex array.
+	# 	# For every line that exists:
+	# 	# 	Vertex-1 must reflect it out
+	# 	# 	Vertex-2 must reflect it in
+	# 	# For every line that cannot exist:
+	# 	# 	Do the same
+	# 	#
+	# 	# Do hlines first, then vlines:
+	# 	for row_i in range(self.hline.shape[0]):
+	# 		h_ones = np.where(self.hline[row_i,:]==1)[0]
+	# 		h_minus_ones = np.where(self.hline[row_i,:]==-1)[0]
+	# 		for col_j in h_ones:
+	# 			self.vertex[1,row_i,col_j]=1
+	# 			self.vertex[3,row_i,col_j+1]=1
+	# 		for col_j in h_minus_ones:
+	# 			self.vertex[1,row_i,col_j]=-1
+	# 			self.vertex[3,row_i,col_j+1]=-1
+	# 	for col_i in range(self.vline.shape[1]):
+	# 		v_ones = np.where(self.vline[:,col_i]==1)[0]
+	# 		v_minus_ones = np.where(self.vline[:,col_i]==-1)[0]
+	# 		for row_j in v_ones:
+	# 			self.vertex[2,row_j,col_i]=1
+	# 			self.vertex[0,row_j+1,col_i]=1
+	# 		for row_j in v_minus_ones:
+	# 			self.vertex[2,row_j,col_i]=-1
+	# 			self.vertex[0,row_j+1,col_i]=-1
+	# def apply_basic_vertex_constraints(self):
+	# 	for val in [-1, 1]:
+	# 		known_vlines_to_below = self.vertex[0,:-1,:] == val
+	# 		known_vlines_from_top = self.vertex[2, 1:,:] == val
+	# 		assert np.all(self.vertex[2, 1:,:][known_vlines_to_below] == val)
+	# 		assert np.all(self.vertex[0,:-1,:][known_vlines_from_top] == val)
+	# 		self.vertex[2,1:, :][known_vlines_to_below] = val
+	# 		self.vertex[0,:-1,:][known_vlines_from_top] = val
+	# 		known_hlines_to_right = self.vertex[1,:,:-1] == val
+	# 		known_hlines_to_left  = self.vertex[3,:, 1:] == val
+	# 		assert np.all(self.vertex[2,1:,:][known_vlines_to_below] == val)
+	# 		known_vlines_from_top = self.vertex[2][1:,:] == val
+	# 		assert np.all(self.vertex[0,:-1,:][known_vlines_from_top] == val)
+	# 		self.vertex[2,1:, :][known_vlines_to_below] = val
+	# 		self.vertex[0,:-1,:][known_vlines_from_top] = val
+	#
+	# 	# known_vlines_to_below = self.vertex[0][:-1,:]==1
+	# 	# assert np.all(1==self.vertex[2,1:,:][known_vlines_to_below])
+	# 	# known_vlines_from_top = self.vertex[2][1:,:]==1
+	# 	# assert np.all(1==self.vertex[0,:-1,:][known_vlines_from_top])
+	# 	# self.vertex[2,1:, :][known_vlines_to_below] = 1
+	# 	# self.vertex[0,:-1,:][known_vlines_from_top] = 1
+	# def update_lines_from_vertices(self):
+	# 	# For every vertex, look for drawn lines or Xs, and render knowledge in line lists.
+	# 	known_vlines = self.vertex[0][:-1,:]==1
+	# 	known_vlines = self.vertex[2][1:,:]==1
+	# 	for vert_row_i in self.n_rows+1:
+	# 		for vert_col_i in self.n_cols+1:
+	#
+	# 	# For each line,
 	def lines_around_cell(self, coords):
 		y,x = coords
 		top = self.hline[y,x]
@@ -284,16 +313,53 @@ class Grid:
 		return trbl
 	def lines_into_vertex(self, coords):
 		y,x = coords
-		return self.vertex[:,y,x]
+		north, south, east, west = 0, 0, 0, 0
+		# return self.vertex[:,y,x]
 		# If the vertex is in the middle, it will have all lines from all 4 directions.
-		if (0<y<self.n_rows) and (0<x<self.n_cols):	
+		if 0<y:
 			north = self.vline[y-1,x]
+		else:
+			north = -1
+		if y<self.n_rows:
 			south = self.vline[y,x]
-			east = self.hline[y,x]
-			west = self.hline[y,x-1]
-			nesw = np.array([north, east, south, west])
-			return nesw
-		# elif (y==0)
+		else:
+			south = -1
+		if 0<x:
+			east = self.hline[y,x-1]
+		else:
+			east = -1
+		if x<self.n_cols:
+			west = self.hline[y,x]
+		else:
+			west = -1
+		nesw = np.array([north, east, south, west])
+		return nesw
+	def update_vertices_from_lines(self):
+		# If a line exists, we know vertices at both ends are visited.
+		self.vertex[:,:-1][self.hline==1] = 1
+		self.vertex[:,1: ][self.hline==1] = 1
+		self.vertex[:-1,:][self.vline==1] = 1
+		self.vertex[1: ,:][self.vline==1] = 1
+		# We can deduce that a vertex is unvisited if all lines into it are impossible.
+		unknowns = np.where(self.vertex==0)
+		for row,col in zip(*unknowns):
+			if np.all(self.lines_into_vertex((row,col))==-1):
+				self.vertex[row,col] = -1
+	def update_lines_from_numbers(self):
+		numbered_squares = np.where(self.number>=0)
+		for row,col in zip(*numbered_squares):
+			number = self.number[row,col]
+			trbl = self.lines_around_cell((row,col))
+			n_lines = np.sum(trbl==1)
+			n_xs = np.sum(trbl==-1)
+			if n_lines + n_xs == 4:
+				assert number == n_lines
+			elif n_lines == number:
+				print("Where TRBL is 0 should now be -1")
+			# elif n_lines < number:
+			# 	if
+		# If vertex is visited, two linse must be true, two false.
+		
 	# def update_lines(self):
 	# 	# Update line info based on other stuff (cells, vertices, shading)
 	# 	for y,x in zip(*np.where(self.number>-1)):
@@ -331,6 +397,16 @@ class Grid:
 # g.set_grid("0..2 .30. .32. 1..3")
 # g.set_lines("..-- .-.. .-.- .-.- .---", "..-.- .-..- ..--. .-..-")
 # g.print_grid()
+
+# Incomplete Wikipedia grid
+g = Grid(dims=[6,6], name="wikipedia")
+g.set_grid("....0. 33..1. ..12.. ..20.. .1..11 .2....")
+g.set_lines("---... .-...- -..-.. ....-. ..-... ---.-. ----.-",
+			"--...- .-.... .---.. --..-. ..-..- .--..- .-----")
+g.update_vertices_from_lines()
+g.print_grid()
+
+
 
 # Wikipedia grid
 g = Grid(dims=[6,6], name="wikipedia")
