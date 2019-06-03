@@ -484,30 +484,72 @@ class Grid:
 		return [[1,i,j],[3,i,j+1],[2,i,j+1],[0,i+1,j+1],[3,i+1,j+1],[1,i+1,j],[0,i+1,j],[2,i,j]]
 	def update_from_numbers(self):
 		self.refresh_cells()
-		n_possible_edges = self.cell[0]
+		n_needed_edges = self.cell[0]
 		n_written_edges = self.cell[1]
 		n_nixed_edges = self.cell[2]
+		n_open_edges = 4 - n_written_edges - n_nixed_edges
 		# In the completed grid, we should have:
-		# n_possible_edges == n_written_edges
+		# n_needed_edges == n_written_edges
 		# n_written_edges + n_nixed_edges == 4
 		numbered_cells = self.cell[0]>=0
-		maxed_out_cells = n_possible_edges == n_written_edges
-		# Action 1: write the remaining lines in a cell that is fully constrained.
-		#			Find cells that have the maximum number of written lines, plus unfilled lines, and are numbered.
-		action_1_cells = maxed_out_cells & numbered_cells & (n_written_edges+n_nixed_edges<4)
-		for i,j in zip(*np.where(action_1_cells)):
-			# Nix remaining lines around this cell
+		# Action 1: Among numbered cells with unconstrained lines, find those with the maximum number of written lines and nix the rest..
+		action_1_cells = numbered_cells & (n_open_edges>0) & (n_needed_edges == n_written_edges)
+		self.write_val_around_cell(action_1_cells, -1)
+		# for i,j in zip(*np.where(action_1_cells)):
+		# 	# Nix remaining lines around this cell
+		# 	vertex_edge_coords = self.vertex_coords_around_cell([i,j])
+		# 	for n,x,y in vertex_edge_coords:
+		# 		if self.vertex[n,x,y]==0:
+		# 			self.vertex[n,x,y]=-1
+		# Action 2: Among numbered cells, find those where remaining number of unconstrained lines equals the remaining number of lines to draw.
+		action_2_cells = numbered_cells & (n_open_edges>0) & (n_open_edges == (n_needed_edges-n_written_edges))
+		self.write_val_around_cell(action_2_cells, 1)
+		# for i,j in zip(*np.where(action_2_cells)):
+		# 	# Nix remaining lines around this cell
+		# 	vertex_edge_coords = self.vertex_coords_around_cell([i,j])
+		# 	for n,x,y in vertex_edge_coords:
+		# 		if self.vertex[n,x,y]==0:
+		# 			self.vertex[n,x,y]=1
+	def write_val_around_cell(self, cell_bool_array, val):
+		for i,j in zip(*np.where(cell_bool_array)):
 			vertex_edge_coords = self.vertex_coords_around_cell([i,j])
 			for n,x,y in vertex_edge_coords:
 				if self.vertex[n,x,y]==0:
-					self.vertex[n,x,y]=-1
-			
-			
-			
-			
-		if n_possible_edges == n_written_edges:
-			all other edges should be nixed
-		if 4-n_possible_edges = n_nixed_edges
+					self.vertex[n,x,y]=val
+	def write_val_around_vertex(self, vert_bool_array, val):
+		for i,j in zip(*np.where(vert_bool_array)):
+			open_values = self.vertex[:,i,j] == 0
+			self.vertex[open_values,i,j] = val
+	def propagate_any_edges(self):
+		# We might have a situation where the edge from (0,0) has been drawn east to (0,1), but not drawn from (1,0) west to (0,0).
+		# This function ensures all edges (and nixed edges) are reciprocal.
+		to_right = self.vertex[1,:,:-1]
+		to_left = self.vertex[3,:,1:]
+		to_above = self.vertex[0,1:,:]
+		to_below = self.vertex[2,:-1,:]
+		for val in [1,-1]:
+			missing_right = (to_right==0) & (to_left==val)
+			missing_left = (to_left==0) & (to_right==val)
+			missing_below = (to_below==0) & (to_above==val)
+			missing_above = (to_above==0) & (to_below==val)
+			self.vertex[1,:,:-1][missing_right] = val
+			self.vertex[3,:,1:][missing_left] = val
+			self.vertex[0,1:,:][missing_above] = val
+			self.vertex[2,:-1,:][missing_below] = val
+	def resolve_vertices(self):
+		# If 3 of 4 lines into a vertex are nixed, nix the remaining one.
+		n_xs_into_verts = np.sum(1*(self.vertex==-1),axis=0)
+		nix_remaining_edges = (n_xs_into_verts==3)
+		self.write_val_around_vertex(nix_remaining_edges, -1)
+		# If 1 line is going into a vertex and there's only 1 way out, write it.
+		n_lines_into_verts = np.sum(1*(self.vertex==1),axis=0)
+		write_remaining_edge = (n_lines_into_verts==1) & (n_xs_into_verts==2)
+		self.write_val_around_vertex(write_remaining_edge, 1)
+		# If 2 lines go into a vertex, remaining lines must be nixed.
+		n_lines_into_verts = np.sum(1*(self.vertex==1),axis=0)
+		nix_remaining_edges = (n_lines_into_verts==2) & (n_xs_into_verts<2)
+		self.write_val_around_vertex(nix_remaining_edges, -1)
+		
 	# def fill_cells(self):
 	# 	# For every cell: can we immediately deduce where to draw lines around it?
 	# def extend_lines(self):
@@ -609,11 +651,15 @@ g = Grid(dims=[6,6], name="wikipedia")
 g.set_grid("....0. 33..1. ..12.. ..20.. .1..11 .2....")
 # g.set_lines("---... .-...- -..-.. ....-. ..-... ---.-. ----.-",
 			# "--...- .-.... .---.. --..-. ..-..- .--..- .-----")
-g.set_lines("______ .-...- -..-.. ....-. ..-... ---.-. ----.-",
-			"______ .-.... .---.. --..-. ..-..- .--..- .-----")
+g.set_lines("______ ______ __.-.. __..-. ..-... ---.-. ----.-",
+			"______ ______ __--.. __..-. ..-..- .--..- .-----")
 g.print_grid()
+
 g.update_from_numbers()
+g.resolve_vertices()
+g.propagate_any_edges()
 g.print_grid()
+
 
 graph_dict = {0:[1,4], 1:[0,2,5], 2:[1,3,6] ...}
 def rectilinear_graph_dict(height,width):
